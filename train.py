@@ -57,9 +57,9 @@ def parse_args(argv=None):
     parser.add_argument('--gamma', default=None, type=float,
                         help='For each lr step, what to multiply the lr by. \
                                 Leave as None to read this from the config.')
-    parser.add_argument('--save_folder', default='../weights/',
+    parser.add_argument('--save_folder', default='./weights/',
                         help='Directory for saving checkpoint models.')
-    parser.add_argument('--log_folder', default='../logs/',
+    parser.add_argument('--log_folder', default='./logs/',
                         help='Directory for saving logs.')
     parser.add_argument('--exp_name', default=None,
                         help='experiment to test sub-modules')
@@ -242,7 +242,7 @@ def train(args, cfg, option, DataSet):
             args.start_iter = SavePath.from_str(args.resume).iteration
     else:
         print('Initializing weights...')
-        dvis_net.init_weights(backbone_path=args.save_folder + cfg.backbone.path)
+        dvis_net.init_weights(backbone_path=os.path.join(args.save_folder, cfg.backbone.path))
 
     #optimizer = optim.SGD(net.parameters(), lr=args.lr, momentum=args.momentum,
     #                      weight_decay=args.decay)

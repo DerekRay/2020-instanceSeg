@@ -1,4 +1,12 @@
+from posixpath import join
 from data.base_config import *
+import os
+import sys 
+sys.path.append("..") 
+from path import data_path
+
+coco_path = os.path.join(data_path, 'dataset', 'coco')
+coco_annotations_path = os.path.join(coco_path, 'annotations') 
 
 COCO_CLASSES_BG = ['bg'] # 0
 COCO_CLASSES_FG = ['person', 'bicycle', 'car', 'motorcycle', 'airplane', 'bus', #0~6
@@ -78,8 +86,10 @@ coco_dataset_base = Config({
 coco2014_dataset = coco_dataset_base.copy({
     'name': 'COCO 2014',
 
-    'train_info': '../dataset/coco/annotations/instances_train2014.json',
-    'valid_info': '../dataset/coco/annotations/instances_val2014.json',
+    #'train_info': '../dataset/coco/annotations/instances_train2014.json',
+    'train_info': os.path.join(coco_annotations_path, 'instances_train2014.json'),
+    #'valid_info': '../dataset/coco/annotations/instances_val2014.json',
+    'valid_info': os.path.join(coco_annotations_path, 'instances_val2014.json'),
 
     'label_map': COCO_LABEL_MAP,
     'sem_weights': COCO_SEM_WEIGHTS
@@ -87,27 +97,25 @@ coco2014_dataset = coco_dataset_base.copy({
 
 coco2017_dataset = coco_dataset_base.copy({
     'name': 'COCO 2017',
-
-    'train_images': '../dataset/coco/images/train2017',
-    'train_info': '../dataset/coco/annotations/instances_train2017.json',
-
-    'valid_images': '../dataset/coco/val2017',
-    'valid_info': '../dataset/coco/annotations/instances_val2017.json',
-
-    #'valid_images': './data/coco/test2017',
-    #'valid_info': './data/coco/annotations/image_info_test-dev2017.json',
-
+    #'train_images': '../dataset/coco/images/train2017',
+    'train_images': os.path.join(coco_path, 'train2017'),
+    #'train_info': '../dataset/coco/annotations/instances_train2017.json',
+    'train_info': os.path.join(coco_annotations_path, 'instances_train2017.json'),
+    #'valid_images': '../dataset/coco/val2017',
+    'valid_images': os.path.join(coco_path, 'val2017'),
+    #'valid_info': '../dataset/coco/annotations/instances_val2017.json',
+    'valid_info': os.path.join(coco_annotations_path, 'instances_val2017.json'),
     'label_map': COCO_LABEL_MAP,
     'sem_weights': COCO_SEM_WEIGHTS
 })
 
 coco2017_testdev_dataset = coco_dataset_base.copy({
     'name': 'COCO 2017 Test-Dev',
-
-    'valid_images': '../dataset/coco/test2017',
-    'valid_info': '../dataset/coco/annotations/image_info_test-dev2017.json',
+    #'valid_images': '../dataset/coco/test2017',
+    'valid_images': os.path.join(coco_path, 'test2017'),
+    #'valid_info': '../dataset/coco/annotations/image_info_test-dev2017.json',
+    'valid_info': os.path.join(coco_annotations_path, 'image_info_test-dev2017.json'),
     'has_gt': False,
-
     'label_map': COCO_LABEL_MAP,
     'sem_weights': COCO_SEM_WEIGHTS
 })

@@ -3,10 +3,10 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torchvision.models.resnet import Bottleneck
 import torch.backends.cudnn as cudnn
-
+import torch.utils.model_zoo as model_zoo
 from typing import List
 from collections import defaultdict
-
+import os
 from backbone import construct_backbone
 from refineNet import RefineNet
 
@@ -260,6 +260,11 @@ class DVIS(nn.Module):
     def init_weights(self, backbone_path):
         """ Initialize weights for training. """
         # Initialize the backbone with the pretrained weights.
+        parent_path = os.path.dirname(backbone_path)
+        if not os.path.exists(parent_path):
+            os.makedirs(parent_path)
+        if not os.path.exists(backbone_path):
+            model_zoo.load_url('https://download.pytorch.org/models/resnet50-19c8e357.pth', model_dir=parent_path)
         self.backbone.init_backbone(backbone_path)
 
         conv_constants = getattr(nn.Conv2d(1, 1, 1), '__constants__')
