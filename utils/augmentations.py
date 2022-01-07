@@ -6,7 +6,7 @@ import types
 from numpy import random
 from math import sqrt
 
-from data import MEANS, STD
+from data.base_config import MEANS, STD
 
 
 def intersect(box_a, box_b):

@@ -1,4 +1,5 @@
-from data import *
+from data.base_config import detection_collate,dataset_specific_import, overwrite_args_from_json, \
+                                overwrite_params_from_json, MEANS
 from utils.augmentations import SSDAugmentation, BaseTransform
 from utils.functions import MovingAverage, SavePath
 from utils.logger import Log
@@ -24,7 +25,6 @@ import torch.optim as optim
 import torch.backends.cudnn as cudnn
 import torch.nn.init as init
 from tensorboardX import SummaryWriter
-
 
 def str2bool(v):
     return v.lower() in ("yes", "true", "t", "1")
@@ -197,15 +197,13 @@ def train(args, cfg, option, DataSet):
     if not os.path.exists(args.log_folder):
         os.makedirs(args.log_folder, exist_ok=True)
 
-    if True:
-        dataset = DataSet(image_path=cfg.dataset.train_images,
+    train_dataset = DataSet(image_path=cfg.dataset.train_images,
                                 mask_out_ch=cfg.gt_inst_ch,
                                 info_file=cfg.dataset.train_info,
                                 option = cfg.dataset,
                                 transform=SSDAugmentation(cfg, MEANS),
                                 running_mode='train')
-    else:
-        dataset = DataSet(image_path=cfg.dataset.valid_images,
+    val_dataset = DataSet(image_path=cfg.dataset.valid_images,
                                     mask_out_ch=cfg.gt_inst_ch,
                                     info_file=cfg.dataset.valid_info,
                                     option = cfg.dataset,
@@ -287,12 +285,17 @@ def train(args, cfg, option, DataSet):
     iteration = max(args.start_iter, 0)
     last_time = time.time()
 
-    epoch_size = len(dataset) // args.batch_size
+    epoch_size = len(train_dataset) // args.batch_size
     num_epochs = math.ceil(cfg.max_iter / epoch_size)
 
     # Which learning rate adjustment step are we on? lr' = lr * gamma ^ step_index
     step_index = 0
-    data_loader = torch.utils.data.DataLoader(dataset, args.batch_size,
+    train_data_loader = torch.utils.data.DataLoader(train_dataset, args.batch_size,
+                                              num_workers=args.num_workers,
+                                              shuffle=False,
+                                              collate_fn=detection_collate,
+                                              pin_memory=True)
+    val_data_loader = torch.utils.data.DataLoader(val_dataset, args.batch_size,
                                               num_workers=args.num_workers,
                                               shuffle=False,
                                               collate_fn=detection_collate,
@@ -312,11 +315,12 @@ def train(args, cfg, option, DataSet):
     try:
         log_loss  = dict()
         for epoch in range(num_epochs):
+            net.train(True)
             # Resume from start_iter
             if (epoch+1)*epoch_size < iteration:
                 continue
 
-            for datum in data_loader:
+            for datum in train_data_loader:
                 # Stop if we've reached an epoch if we're resuming from start_iter
                 if iteration == (epoch+1)*epoch_size:
                     break
@@ -385,7 +389,7 @@ def train(args, cfg, option, DataSet):
                     time_avg.add(elapsed)
 
                 # terminal log infor
-                log_step = {'prt': 10, 'tb_scale':50, 'tb_image': 100}
+                log_step = {'prt': 100, 'tb_scale':50, 'tb_image': 100}
                 if iteration % log_step['prt'] == 0:
                     seconds=(cfg.max_iter-iteration) * time_avg.get_avg()
                     eta_str = str(datetime.timedelta(seconds=seconds)).split('.')[0]
@@ -436,6 +440,8 @@ def train(args, cfg, option, DataSet):
                 # clear variables
                 del ret, vis_imgs, losses, all_loss
                 # end of batch run
+            net.eval()
+            val_one_epoch(epoch, iteration, net, val_data_loader, loss_keys, loss_avgs)
             # end of epoch
 
     except KeyboardInterrupt:
@@ -451,6 +457,21 @@ def train(args, cfg, option, DataSet):
 
     writer.close()
     dvis_net.save_weights(save_path(epoch, iteration))
+
+def val_one_epoch(epoch, iteration, net, val_data_loader, loss_keys, loss_avgs):
+    for datum in val_data_loader:
+        ret = net(datum)
+
+        # Mean here because Dataparallel
+        losses = { k: ret[k].mean() for k in loss_keys if k in ret}
+        det_loss_keys = [k for k in loss_keys if k in losses]
+        for k in det_loss_keys:
+            loss_avgs[k].add(losses[k].item())
+
+        total = sum([loss_avgs[k].get_avg() for k in det_loss_keys if 'eval' not in k])
+        loss_labels = sum([[k, loss_avgs[k].get_avg()] for k in loss_keys if k in det_loss_keys], [])
+        print(('[%3d] %7d ||' + (' %s: %.3f |' * len(det_loss_keys)) + ' T: %.3f')
+                    % tuple([epoch, iteration] + loss_labels + total), flush=True)
 
 def set_lr_value(optimizer, lr_value=1e-4):
     for param_group in optimizer.param_groups:
@@ -557,8 +578,12 @@ if __name__ == '__main__':
 
     # prepare initial parameters
     args = parse_args()
+    option = getDefaultSetting()
     if args.scripts is not None:
+        #set args from a script
         json_dict = overwrite_args_from_json(args.scripts, args)
+        # extra parameters defined in json scripts
+        option = overwrite_params_from_json(json_dict, option)
 
     # preprocess about parameters
     if torch.cuda.is_available():
@@ -571,10 +596,17 @@ if __name__ == '__main__':
     else:
         torch.set_default_tensor_type('torch.FloatTensor')
 
-    # import dataset related functions and configuration
+    """
+    import dataset related functions and configuration
+    cfg is some parameters related specific dataset
+    """
     DataSet, cfg, set_dataset, set_cfg = dataset_specific_import(args.dataset)
 
-    # update config and args
+    """
+    update config and args, config is defined in config_*.py, for example, config_coco.py, which depends on what dataset you use, 
+    if you don't want to use default config, add your config in the config_*.py. If you defined multi-versions of one dataset, you could 
+    switch it by defining args.dataset.
+    """
     if args.config is not None:
         set_cfg(cfg, args.config)
     if args.dataset is not None:
@@ -595,11 +627,6 @@ if __name__ == '__main__':
         cfg.max_iter //= factor
         cfg.lr_steps = [x // factor for x in cfg.lr_steps]
     replace(['lr', 'decay', 'gamma', 'momentum'], args, cfg)
-
-    # extra parameters defined in json scripts
-    option = getDefaultSetting()
-    if args.scripts is not None:
-        overwrite_params_from_json(json_dict, option)
 
     # train the network
     train(args, cfg, option, DataSet)

@@ -249,7 +249,8 @@ def setup_network_base_config(dataset_config, dataset, lr_steps, max_size=550,
 
         # Training params
         'lr_steps': lr_steps,
-        'max_iter': 800000,
+        #'max_iter': 800000,
+        'max_iter': 10000,
 
         # Backbone Settings
         'net_in_channels': net_in_channels,
@@ -347,6 +348,22 @@ def change_backbone_resnet50_dcn(base_config):
     return plus_resnet50_config
 
 # ---------------------------------------------------------------------#
+def dataset_specific_import(dataName):
+    '''
+    import dataset related functions
+    '''
+    if 'coco' in dataName:
+        from data.config_coco import cfg, set_dataset, set_cfg
+        from data.coco import COCODetection as DataSet
+    elif 'pascal' in dataName:
+        from data.config_pascal import cfg, set_dataset, set_cfg
+        from data.pascal import PASCALDetection as DataSet
+    else:
+        print('please specify a supported dtaset!')
+        exit(-1)
+
+    return DataSet, cfg, set_dataset, set_cfg
+
 def overwrite_args_from_json(fpath, args):
     with open(fpath, 'r') as f:
         json_dict = json.load(f)
@@ -358,10 +375,8 @@ def overwrite_args_from_json(fpath, args):
 
     return json_dict
 
-
 def overwrite_params_from_json(json_dict, option=dict(), key='option'):
     if key in json_dict:
         for kk in json_dict[key]:
             option[kk] = json_dict[key][kk]
-
-
+    return option
