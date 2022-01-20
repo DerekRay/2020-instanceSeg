@@ -1,5 +1,6 @@
-from data.base_config import detection_collate,dataset_specific_import, overwrite_args_from_json, \
+from data.base_config import dataset_specific_import, overwrite_args_from_json, \
                                 overwrite_params_from_json, MEANS
+from data.base_dataset import detection_collate, enforce_size
 from utils.augmentations import SSDAugmentation, BaseTransform
 from utils.functions import MovingAverage, SavePath
 from utils.logger import Log
@@ -327,47 +328,47 @@ def train(args, cfg, option, DataSet):
                 # Stop at the configured number of iterations even if mid-epoch
                 if iteration == cfg.max_iter:
                     break
-
+             
                 # Change a config setting if we've reached the specified iteration
                 changed = False
                 for change in cfg.delayed_settings:
                     if iteration >= change[0]:
                         changed = True
                         cfg.replace(change[1])
-
+             
                         # Reset the loss averages because things might have changed
                         for avg in loss_avgs:
                             avg.reset()
-
+             
                 # If a config setting was changed, remove it from the list so we don't keep checking
                 if changed:
                     cfg.delayed_settings = [x for x in cfg.delayed_settings if x[0] > iteration]
-
+             
                 # Warm up by linearly interpolating the learning rate from some smaller value
                 if cfg.lr_warmup_until > 0 and iteration <= cfg.lr_warmup_until:
                     lr_value = min((iteration+1.) / cfg.lr_warmup_until, args.lr)
                     set_lr_value(optimizer, lr_value=lr_value)
-
+             
                 # Adjust the learning rate at the given iterations, but also if we resume from past that iteration
                 while step_index < len(cfg.lr_steps) and iteration >= cfg.lr_steps[step_index]:
                     step_index += 1
                     set_lr_scale(optimizer, lr_scale=(args.gamma ** step_index))
-
+             
                 # Zero the grad to get ready to compute gradients
                 optimizer.zero_grad()
-
+             
                 # Forward Pass + Compute loss at the same time (see CustomDataParallel and NetLoss0)
-                # ta = [(key, net.state_dict(keep_vars=True)[key].requires_grad) for key in net.state_dict()]
-                # net.state_dict(keep_vars=True)['module.net.refine_net.mask_fcn_logits.bias']
+                ta = [(key, net.state_dict(keep_vars=True)[key].requires_grad) for key in net.state_dict()]
+                net.state_dict(keep_vars=True)['module.net.refine_net.mask_fcn_logits.bias']
                 ret = net(datum)
-
+             
                 # Mean here because Dataparallel
                 losses = { k: ret[k].mean() for k in loss_keys if k in ret}
                 det_loss_keys = [k for k in loss_keys if k in losses]
                 all_loss = sum([losses[k] for k in det_loss_keys])
                 for k in det_loss_keys:
                     loss_avgs[k].add(losses[k].item())
-
+             
                 # backward and optimize
                 if args.show_gradients==True:
                     ret['preds_0'].retain_grad()
@@ -377,29 +378,29 @@ def train(args, cfg, option, DataSet):
                     all_loss.backward() # Do this to free up vram even if loss is not finite
                 if torch.isfinite(all_loss).item():
                     optimizer.step()
-
+                
                 vis_imgs  = {k:ret[k] for k in vis_keys if k in ret}
-
+             
                 cur_time  = time.time()
                 elapsed   = cur_time - last_time
                 last_time = cur_time
-
+             
                 # Exclude graph setup from the timing information
                 if iteration != args.start_iter:
                     time_avg.add(elapsed)
-
+             
                 # terminal log infor
                 log_step = {'prt': 100, 'tb_scale':50, 'tb_image': 100}
                 if iteration % log_step['prt'] == 0:
                     seconds=(cfg.max_iter-iteration) * time_avg.get_avg()
                     eta_str = str(datetime.timedelta(seconds=seconds)).split('.')[0]
-
+                
                     total = sum([loss_avgs[k].get_avg() for k in det_loss_keys if 'eval' not in k])
                     loss_labels = sum([[k, loss_avgs[k].get_avg()] for k in loss_keys if k in det_loss_keys], [])
-
+                
                     print(('[%3d] %7d ||' + (' %s: %.3f |' * len(det_loss_keys)) + ' T: %.3f || ETA: %s || timer: %.3f')
                             % tuple([epoch, iteration] + loss_labels + [total, eta_str, elapsed]), flush=True)
-
+                
                 # tensorboard log
                 if args.log:
                     log_scale_step = log_step['tb_scale']//args.batch_size
@@ -408,35 +409,35 @@ def train(args, cfg, option, DataSet):
                             log_loss[k] = loss_avgs[k].get_avg()
                         else:
                             log_loss[k] += loss_avgs[k].get_avg()
-
+                
                     if iteration%log_scale_step == log_scale_step-1:
                         for k in det_loss_keys:
                             writer.add_scalar(k+'_loss',
                                               log_loss[k]/float(log_scale_step),
                                               iteration/log_scale_step)
                             log_loss[k] = 0
-
+                
                     log_fig_step = log_step['tb_image']
                     if iteration%log_fig_step == log_fig_step-1:
                         if 'davis' in args.dataset:
                             vis_imgs['rgb'] = vis_imgs['rgb'][:, :3, :, :]
                         fig = plot_tfboard_figure(cfg, vis_imgs, show_grad=args.show_gradients)
                         writer.add_figure('grid-fig', fig, global_step=iteration/log_fig_step)
-
+             
                 # save ckpt
                 iteration += 1
                 if iteration % args.save_interval == 0 and iteration != args.start_iter:
                     if args.keep_latest:
                         latest = SavePath.get_latest(args.save_folder, cfg.name)
-
+             
                     print('Saving state, iter:', iteration)
                     dvis_net.save_weights(save_path(epoch, iteration))
-
+             
                     if args.keep_latest and latest is not None:
                         if args.keep_latest_interval <= 0 or iteration % args.keep_latest_interval != args.save_interval:
                             print('Deleting old save...')
                             os.remove(latest)
-
+             
                 # clear variables
                 del ret, vis_imgs, losses, all_loss
                 # end of batch run
@@ -471,7 +472,7 @@ def val_one_epoch(epoch, iteration, net, val_data_loader, loss_keys, loss_avgs):
         total = sum([loss_avgs[k].get_avg() for k in det_loss_keys if 'eval' not in k])
         loss_labels = sum([[k, loss_avgs[k].get_avg()] for k in loss_keys if k in det_loss_keys], [])
         print(('[%3d] %7d ||' + (' %s: %.3f |' * len(det_loss_keys)) + ' T: %.3f')
-                    % tuple([epoch, iteration] + loss_labels + total), flush=True)
+                    % tuple([epoch, iteration] + loss_labels + [total]), flush=True)
 
 def set_lr_value(optimizer, lr_value=1e-4):
     for param_group in optimizer.param_groups:

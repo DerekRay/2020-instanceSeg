@@ -28,7 +28,7 @@ class COCODetection(Detection):
                  transform=None, target_transform=None,
                  dataset_name='MS COCO', running_mode='test', model_mode='InstSeg'):
         '''
-        Args:running_mode: 'train' | 'val' | 'test'
+        Args:running_mode: 'train' | 'test'
              model_mode: 'InstSeg' | 'SemSeg' | 'ObjDet'
         '''
         super(COCODetection, self).__init__(image_path,

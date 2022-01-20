@@ -250,7 +250,7 @@ def setup_network_base_config(dataset_config, dataset, lr_steps, max_size=550,
         # Training params
         'lr_steps': lr_steps,
         #'max_iter': 800000,
-        'max_iter': 10000,
+        'max_iter': 100000,
 
         # Backbone Settings
         'net_in_channels': net_in_channels,
